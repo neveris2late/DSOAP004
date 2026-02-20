@@ -1,31 +1,41 @@
 using UnityEngine;
 using UnityEngine.UI;
-using Ink.Runtime; // [新增] 必须引入 Ink 运行时
+using Ink.Runtime; 
 
 public class DetectorBarController : MonoBehaviour
 {
     [Header("1. Data Source")]
-    public SuspectsSO currentSuspect; // 拖入当前的嫌疑人SO
+    public SuspectsSO currentSuspect;
 
     [Header("2. References")]
     public Image barImage; 
-    // 需要引用 TagManager 来解析标签
     public InkTagManager inkTagManager;
     
-    [Header("3. Status Debug")]
-    [SerializeField] private float currentFill = 0f;  // 当前显示值
-    [SerializeField] private float targetFill = 0f;   // 目标值
-    [SerializeField] private float currentSpeed = 1f; // 当前移动速度
+    [Header("3. Core Status")]
+    [SerializeField] private float displayFill = 0f;  // 最终发送给Shader的显示值 (包含波动)
+    [SerializeField] private float baseFill = 0f;     // 平滑移动的底层基准线
+    [SerializeField] private float targetFill = 0f;   // 当前要前往的目标值 (Ink设定或闲置漂移设定)
+    [SerializeField] private float currentSpeed = 1f; 
+
+    [Header("4. Continuous Fluctuation (动态波动参数)")]
+    [Tooltip("基础波动幅度（能量为0时的上下抖动范围）")]
+    public float minFluctuationAmplitude = 0.5f; 
+    [Tooltip("最大波动幅度（能量为100时的上下抖动范围）")]
+    public float maxFluctuationAmplitude = 8f;
+    [Tooltip("基础波动速度（呼吸频率）")]
+    public float minFluctuationSpeed = 0.5f;
+    [Tooltip("最大波动速度（高压状态下的急促抖动频率）")]
+    public float maxFluctuationSpeed = 4f;
     
     [Header("--- DEBUG TEST MODE ---")]
-    [Tooltip("拖入编译好的 Ink JSON 文件进行测试")]
     public TextAsset testInkJson; 
     private Story _testStory;
 
     // 内部变量
     private Material _barMat;
-    private bool _isInkControlling = false; // 是否正受Ink指令控制
-    private float _driftTimer = 0f;         // 漂移计时器
+    private bool _isInkControlling = false; 
+    private float _driftTimer = 0f;
+    private float _noiseSeed; // 用于产生独一无二的随机波动序列
 
     void Start()
     {
@@ -36,23 +46,21 @@ public class DetectorBarController : MonoBehaviour
             barImage.material = _barMat;
         }
 
-        // 2. 初始化数值
+        // 2. 随机化噪声种子，确保每次游戏波动感不同
+        _noiseSeed = Random.Range(0f, 1000f);
+
+        // 3. 初始化数值
         if (currentSuspect != null)
         {
-            // 初始直接设为基准值
-            currentFill = currentSuspect.baseAnomalyLevel;
-            targetFill = currentFill;
+            baseFill = currentSuspect.baseAnomalyLevel;
+            targetFill = baseFill;
         }
         
-        // [新增] 初始化测试故事
+        // 初始化测试故事
         if (testInkJson != null)
         {
             _testStory = new Story(testInkJson.text);
             Debug.Log("测试模式开启：按 [空格键] 继续对话");
-        }
-        else
-        {
-            Debug.LogError("请拖入 Ink JSON 文件以开启测试！");
         }
         
         UpdateShaderValues();
@@ -60,87 +68,68 @@ public class DetectorBarController : MonoBehaviour
 
     void Update()
     {
-        // 核心分流逻辑
-        if (_isInkControlling)
+        // 1. 核心分流：决定 targetFill 是谁给的
+        if (!_isInkControlling)
         {
-            HandleInkMovement();
-        }
-        else
-        {
-            HandleIdleDrift();
+            HandleIdleTarget(); 
         }
 
+        // 2. 基准线平滑追赶 targetFill
+        baseFill = Mathf.Lerp(baseFill, targetFill, Time.deltaTime * currentSpeed);
+
+        // 3. 计算波动并叠加 (核心动态效果)
+        ApplyContinuousFluctuation();
+
+        // 4. 更新表现层
         UpdateShaderValues();
     }
 
-    // --- 逻辑 A: 闲置时的随机漂移 (符合你要求的Drift) ---
-    void HandleIdleDrift()
+    // --- 逻辑 A: 闲置时的宏观漂移目标更新 ---
+    void HandleIdleTarget()
     {
         if (currentSuspect == null) return;
 
         _driftTimer -= Time.deltaTime;
-
         if (_driftTimer <= 0f)
         {
-            // 1. 读取基准值
             float baseVal = currentSuspect.baseAnomalyLevel;
-            
-            // 2. 在 -10 到 10 之间随机选取 Drift
             float drift = Random.Range(-10f, 10f);
             
-            // 3. 设定新目标 (基准 + Drift)
             targetFill = Mathf.Clamp(baseVal + drift, 0f, 100f);
-            
-            // 4. 填充速度降为 1-3 之间的随机值
-            currentSpeed = Random.Range(1f, 3f);
-
-            // 重置计时器 (每 2-4 秒变换一次漂移目标)
-            _driftTimer = Random.Range(2f, 4f);
+            currentSpeed = Random.Range(0.5f, 2f); // 闲置时移动得慢一点更自然
+            _driftTimer = Random.Range(3f, 6f);    // 宏观目标变更的间隔变长，因为每帧都有噪声在动
         }
-
-        // 执行平滑移动
-        currentFill = Mathf.Lerp(currentFill, targetFill, Time.deltaTime * currentSpeed);
     }
 
-    // --- 逻辑 B: Ink 指令执行 ---
-    void HandleInkMovement()
+    // --- 逻辑 C: 永不静止的动态波动计算 ---
+    void ApplyContinuousFluctuation()
     {
-        // 向 Ink 指定的目标移动
-        // 这里使用 MoveTowards 还是 Lerp 取决于你想不想让到达终点时有减速感，Lerp更自然
-        if (Mathf.Abs(currentFill - targetFill) > 0.1f)
-        {
-            currentFill = Mathf.Lerp(currentFill, targetFill, Time.deltaTime * currentSpeed);
-        }
-        else
-        {
-            currentFill = targetFill;
-            // 可选：当到达 Ink 指定的目标后，是否自动切回漂移模式？
-            // 如果希望一直保持在此高度直到下一句话，就保持 _isInkControlling = true
-            // 如果希望说完话慢慢回落，可以在这里加计时器重置 _isInkControlling = false
-        }
+        // 计算当前基准值所占的比例 (0 到 1)
+        float fillRatio = baseFill / 100f;
+
+        // 根据当前能量高低，线性插值计算出【当前的振幅】和【当前的波动速度】
+        float currentAmplitude = Mathf.Lerp(minFluctuationAmplitude, maxFluctuationAmplitude, fillRatio);
+        float currentNoiseSpeed = Mathf.Lerp(minFluctuationSpeed, maxFluctuationSpeed, fillRatio);
+
+        // 使用柏林噪声生成 -1 到 1 的平滑随机因子
+        // Time.time * currentNoiseSpeed 决定了波动的快慢
+        float noiseValue = Mathf.PerlinNoise(Time.time * currentNoiseSpeed, _noiseSeed) * 2f - 1f;
+
+        // 最终显示值 = 底层基准线 + (随机因子 * 振幅)
+        displayFill = Mathf.Clamp(baseFill + (noiseValue * currentAmplitude), 0f, 100f);
     }
 
     // --- 公共接口：供 InkTagManager 调用 ---
-    
-    /// <summary>
-    /// 接收 Ink 的标签指令
-    /// </summary>
-    /// <param name="target">目标能量值 (0-100)</param>
-    /// <param name="speed">填充速度变量</param>
     public void SetInkInstruction(float target, float speed)
     {
-        _isInkControlling = true; // 标记为正在受控，暂停随机漂移
-        targetFill = Mathf.Clamp(target, 0f, 100f);
+        _isInkControlling = true; 
+        targetFill = Mathf.Clamp(target, 0f, 100f); // 直接改变基准目标
         currentSpeed = speed;
     }
 
-    /// <summary>
-    /// (可选) 手动释放控制，让其回到基准值漂移
-    /// </summary>
     public void ReleaseToIdle()
     {
         _isInkControlling = false;
-        // 这里的 driftTimer 设为 0 会让它在下一帧立即计算一个新的漂移点
         _driftTimer = 0f; 
     }
 
@@ -148,8 +137,8 @@ public class DetectorBarController : MonoBehaviour
     {
         if (_barMat != null)
         {
-            _barMat.SetFloat("_FillAmount", currentFill / 100f);
-            // 可以在这里加上 brightness 的控制
+            // 注意这里使用的是计算过波动的 displayFill 
+            _barMat.SetFloat("_FillAmount", displayFill / 100f);
         }
     }
 }

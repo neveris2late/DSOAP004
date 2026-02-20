@@ -8,7 +8,7 @@ public class TypewriterEffect : MonoBehaviour
     public TMP_Text textBox;
     
     // 当前打字速度 (秒/字)
-    private float currentDelay = 0.05f;
+    public float currentDelay = 0.05f;
     private Coroutine typingCoroutine;
     private bool isTyping = false;
     private Action onCompleteCallback;

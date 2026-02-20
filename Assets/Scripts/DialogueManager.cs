@@ -7,7 +7,7 @@ using System.Collections.Generic;
 public class DialogueManager : MonoBehaviour
 {
     [Header("Test Controls")]
-    public Button startTestButton; // [新增] 拖入你的测试按钮
+    public Button startTestButton; 
     
     [Header("Ink JSON")]
     public TextAsset inkJsonAsset;
@@ -15,31 +15,31 @@ public class DialogueManager : MonoBehaviour
 
     [Header("UI Panels")]
     public GameObject suspectPanel; // 嫌疑人对话框父物体
-    public TypewriterEffect suspectTypewriter; // 嫌疑人打字机
-    public TMP_Text suspectNameText;
+    public TypewriterEffect suspectTypewriter; 
+    public TMP_Text suspectNameText; // (可选) 用于更新嫌疑人名字
 
     public GameObject playerPanel;  // 玩家对话框父物体
-    public TypewriterEffect playerTypewriter;  // 玩家打字机 (可选)
+    public TypewriterEffect playerTypewriter;  
 
     [Header("Choices UI")]
-    public GameObject choiceButtonContainer; // 按钮的父容器 (Grid Layout Group)
-    public Button choiceButtonPrefab; // 按钮预制体
+    public GameObject choiceButtonContainer; 
+    public Button choiceButtonPrefab; 
 
     [Header("Managers")]
     public InkTagManager tagManager;
     
     private bool isDialoguePlaying = false;
-    
-    private bool isWaitingForChoice = false;
+
+    // 句子之间的停顿时间，让自动播放看起来更自然
+    public float autoPlayDelay = 0.5f; 
 
     void Start()
     {
-        // 初始化时隐藏对话框
+        // 初始化状态：隐藏玩家面板和选项，显示嫌疑人面板
         suspectPanel.SetActive(true);
         playerPanel.SetActive(false);
         choiceButtonContainer.SetActive(false);
 
-        // [新增] 绑定按钮事件
         if (startTestButton != null)
         {
             startTestButton.onClick.AddListener(StartDialogueTest);
@@ -47,7 +47,6 @@ public class DialogueManager : MonoBehaviour
         }
     }
     
-    // [新增] 点击按钮后调用的方法
     public void StartDialogueTest()
     {
         if (inkJsonAsset == null)
@@ -56,7 +55,6 @@ public class DialogueManager : MonoBehaviour
             return;
         }
 
-        // 隐藏开始按钮
         if (startTestButton != null) startTestButton.gameObject.SetActive(false);
 
         story = new Story(inkJsonAsset.text);
@@ -65,108 +63,116 @@ public class DialogueManager : MonoBehaviour
         RefreshView();
     }
 
-    void StartStory()
-    {
-        story = new Story(inkJsonAsset.text);
-        RefreshView();
-    }
-
-    // 核心循环函数
+    // 核心推进逻辑
     public void RefreshView()
     {
-        // 1. 如果有内容继续播放
         if (story.canContinue)
         {
             string text = story.Continue().Trim();
             
-            // 处理标签
-            tagManager.HandleTags(story.currentTags);
+            // 1. 预判当前是谁在说话（提取你 ParseAndDisplayDialogue 里的逻辑）
+            TypewriterEffect currentTyper = suspectTypewriter; // 默认是嫌疑人
+            if (text.Contains("我:")) 
+            {
+                currentTyper = playerTypewriter; // 如果文本包含"我:"，则是玩家
+            }
 
-            // 解析说话人
+            // 2. 将正确的打字机传递给 TagManager 处理标签
+            tagManager.HandleTags(story.currentTags, currentTyper);
+
+            // 3. 解析说话人并播放打字机
             ParseAndDisplayDialogue(text);
         }
-        // 2. 如果没有内容，检查是否有选项
         else if (story.currentChoices.Count > 0)
         {
             DisplayChoices();
         }
         else
         {
-            Debug.Log("对话结束");
+            Debug.Log("对话全部结束");
             isDialoguePlaying = false;
-            // 可选：结束后重新显示开始按钮
-            // if (startTestButton != null) startTestButton.gameObject.SetActive(true);
         }
     }
 
     void ParseAndDisplayDialogue(string fullText)
     {
         string content = fullText;
-        bool isSuspect = true; // 默认为嫌疑人
+        bool isPlayer = false;
 
-        // 简单的说话人判断逻辑
+        // 判断说话人（假设 Ink 中玩家说话以 "我:" 开头）
         if (fullText.Contains(":"))
         {
             string[] parts = fullText.Split(new char[] { ':' }, 2);
             string name = parts[0].Trim();
             content = parts[1].Trim();
 
-            // 名字是"我"
             if (name == "我")
             {
-                isSuspect = false;
+                isPlayer = true;
             }
             else
             {
-                
+                isPlayer = false;
+                // 如果需要动态更新嫌疑人名字，可在这里赋值：
+                if(suspectNameText != null) suspectNameText.text = name;
             }
         }
 
-        // 根据是谁在说话，显示不同的面板
-        if (isSuspect)
+        if (isPlayer)
         {
-            suspectPanel.SetActive(true);
-            //playerPanel.SetActive(false); // 或者不隐藏，看设计
-            //choiceButtonContainer.SetActive(false); // 隐藏选项
-
-            // 嫌疑人说话：调用打字机
-            // 关键：传入的回调函数 RefreshView，意味着打完字后尝试继续
-            suspectTypewriter.ShowText(content, OnTypingFinished);
+            // 玩家说话回合
+            playerPanel.SetActive(true);
+            
+            // 传入专门的玩家打字机回调
+            playerTypewriter.ShowText(content, OnPlayerTypingFinished);
         }
         else
         {
-            // 玩家说话 (通常是选完选项后的详细文本)
-            //suspectPanel.SetActive(false); // 或者变暗
-            playerPanel.SetActive(true);
-            choiceButtonContainer.SetActive(false);
-
-            // 玩家直接显示或也用打字机
-            playerTypewriter.ShowText(content, OnTypingFinished);
+            // 嫌疑人说话回合
+            suspectPanel.SetActive(true);
+            
+            // 传入专门的嫌疑人打字机回调
+            suspectTypewriter.ShowText(content, OnSuspectTypingFinished);
         }
     }
 
-    // 打字机打完后的回调
-    void OnTypingFinished()
+    // --- 回调函数：嫌疑人打字结束 ---
+    void OnSuspectTypingFinished()
     {
-        // 1. 优先检查是否有选项 (Ink 在文本结束前就会预加载选项)
+        // 1. 如果有选项，出选项
         if (story.currentChoices.Count > 0)
         {
             DisplayChoices();
         }
-        // 2. [关键修复] 如果没有选项，但还有后续文本，自动播放下一句
+        // 2. 如果还有下一句，自动播放
         else if (story.canContinue)
         {
-            // 添加一个微小的延迟可以让对话节奏更自然，不加也可以
-            Invoke("RefreshView", 0.5f); // 0.5秒后自动播放下一句
-            // 或者直接调用: RefreshView(); 
+            Invoke(nameof(RefreshView), autoPlayDelay); 
         }
-        // 3. 既没选项也没文本，说明对话彻底结束
         else
         {
             Debug.Log("本段对话结束");
         }
     }
-    // 显示选项按钮
+
+    // --- 回调函数：玩家打字结束 ---
+    void OnPlayerTypingFinished()
+    {
+        // 按照需求：玩家的语句播放完后，清除玩家 textbox，接着继续播放嫌疑人对话
+        Invoke(nameof(ClearPlayerAndContinue), autoPlayDelay);
+    }
+
+    void ClearPlayerAndContinue()
+    {
+        // 清除文本，隐藏面板
+        playerTypewriter.textBox.text = "";
+        playerPanel.SetActive(false);
+
+        // 继续推进 Ink 故事
+        RefreshView();
+    }
+
+    // --- 选项处理 ---
     void DisplayChoices()
     {
         // 清理旧按钮
@@ -175,8 +181,8 @@ public class DialogueManager : MonoBehaviour
             Destroy(child.gameObject);
         }
 
+        // 出现选项时，显示 Container
         choiceButtonContainer.SetActive(true);
-        isWaitingForChoice = true;
 
         // 生成新按钮
         for (int i = 0; i < story.currentChoices.Count; i++)
@@ -184,26 +190,23 @@ public class DialogueManager : MonoBehaviour
             Choice choice = story.currentChoices[i];
             Button button = Instantiate(choiceButtonPrefab, choiceButtonContainer.transform);
             
-            // 设置按钮文字 (简介)
             TMP_Text btnText = button.GetComponentInChildren<TMP_Text>();
             btnText.text = choice.text;
 
-            // 绑定点击事件
             int index = i;
             button.onClick.AddListener(() => OnClickChoice(index));
         }
     }
 
-    // 玩家点击选项
     void OnClickChoice(int choiceIndex)
     {
+        // 玩家选择选项后，隐藏选项及其 Container
         choiceButtonContainer.SetActive(false);
-        isWaitingForChoice = false;
 
         // 告诉 Ink 玩家选了哪个
         story.ChooseChoiceIndex(choiceIndex);
 
-        // 这里的关键：Ink 的机制是选了选项后，Continue() 会输出该选项内部的内容
+        // 刷新视图，这通常会触发对应选项文本的 `Continue()`
         RefreshView(); 
     }
 }
