@@ -100,7 +100,7 @@ public class DialogueManager : MonoBehaviour
         bool isPlayer = false;
 
         // 判断说话人（假设 Ink 中玩家说话以 "我:" 开头）
-        if (fullText.Contains(":"))
+        if (fullText.Contains(":") | fullText.Contains("："))
         {
             string[] parts = fullText.Split(new char[] { ':' }, 2);
             string name = parts[0].Trim();
@@ -166,7 +166,7 @@ public class DialogueManager : MonoBehaviour
     {
         // 清除文本，隐藏面板
         playerTypewriter.textBox.text = "";
-        playerPanel.SetActive(false);
+        //playerPanel.SetActive(false);
 
         // 继续推进 Ink 故事
         RefreshView();

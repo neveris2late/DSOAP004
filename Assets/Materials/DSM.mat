@@ -60,7 +60,7 @@ Material:
     - _QueueControl: 0
     - _QueueOffset: 0
     m_Colors:
-    - _IdleColor: {r: 0.5566037, g: 0.5566037, b: 0.5566037, a: 0.2980392}
+    - _IdleColor: {r: 1, g: 0.95774883, b: 0, a: 0.5803922}
     - _NormalColor: {r: 0, g: 0.49803913, b: 1, a: 0}
     - _WarningColorA: {r: 0.066037714, g: 0.066037714, b: 0.066037714, a: 0}
     - _WarningColorB: {r: 0, g: 0, b: 0, a: 0}

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: c71acf5ba8ab745aa901a731746e0ca0
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - flyingCharPrefab: {fileID: 7987046239817412570, guid: 4a59752b72901401ab640c3aea339f59,
+      type: 3}
+  - poolTargetTransform: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
